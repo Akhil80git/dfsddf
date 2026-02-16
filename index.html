@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🔒 Protected Originals · Duplicates & Custom deletable</title>
+    <title>🔒 Protected Originals · Fixed Proxy Mode</title>
     <!-- Bootstrap 5 + Icons -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
@@ -358,6 +358,18 @@
         body.dark-mode .backend-toggle {
             background: #2d3440;
         }
+        .target-backend-input {
+            max-width: 200px;
+            border-radius: 40px;
+            border: 2px solid #6c5ce7;
+            padding: 6px 16px;
+            background: white;
+        }
+        body.dark-mode .target-backend-input {
+            background: #2d3440;
+            color: white;
+            border-color: #8a7be7;
+        }
     </style>
 </head>
 <body class="p-4">
@@ -368,17 +380,17 @@
         <span class="bg-white shadow-sm rounded-5 p-3 d-inline-flex align-items-center px-4">
             <i class="bi bi-shield-check text-primary fs-3 me-2"></i>
             <span class="fw-bold fs-4">ProtectedAPI</span>
-            <span class="badge bg-dark text-white ms-3 px-3 py-2 rounded-pill">originals protected</span>
+            <span class="badge bg-dark text-white ms-3 px-3 py-2 rounded-pill">PROXY FIXED ✅</span>
         </span>
     </div>
     <div class="d-flex align-items-center gap-2 mt-2 mt-sm-0 flex-wrap">
         <!-- Backend Toggle Switch -->
         <div class="backend-toggle" id="backendToggle">
             <div class="backend-option active" data-backend="fixed">
-                <i class="bi bi-server"></i> Fixed Backend
+                <i class="bi bi-server"></i> Proxy Mode
             </div>
             <div class="backend-option" data-backend="local">
-                <i class="bi bi-hdd"></i> Local Port
+                <i class="bi bi-hdd"></i> Direct Mode
             </div>
         </div>
         
@@ -386,6 +398,12 @@
         <div class="fixed-url d-flex align-items-center gap-2" id="fixedBackendDiv">
             <i class="bi bi-shield-check"></i>
             <span id="fixedBackendUrl">https://proxy-server-enne.onrender.com</span>
+        </div>
+        
+        <!-- Target Backend Input (for proxy mode) -->
+        <div class="d-flex align-items-center gap-1" id="targetBackendDiv">
+            <span class="text-secondary">Target:</span>
+            <input type="text" id="targetBackendInput" class="form-control target-backend-input" value="https://your-backend.onrender.com" placeholder="backend URL">
         </div>
         
         <!-- Local Port Input - Only visible when local selected -->
@@ -420,19 +438,20 @@
         <div class="text-center mt-4 text-secondary small">
             <i class="bi bi-shield-lock-fill"></i> <span class="fw-bold">Original APIs (with badge) cannot be deleted</span> · Duplicates & custom APIs are deletable
             <br>
-            <span class="mt-2 d-block"><i class="bi bi-arrow-left-right"></i> Toggle between <strong>Fixed Backend</strong> and <strong>Local Port</strong> at top</span>
-            <span class="d-block"><i class="bi bi-info-circle"></i> APIs use path only (like /api/auth/register) - No need to type full URL!</span>
+            <span class="mt-2 d-block"><i class="bi bi-arrow-left-right"></i> <strong>Proxy Mode:</strong> Request goes via proxy → target backend (CORS bypass) | <strong>Direct Mode:</strong> Direct to localhost</span>
+            <span class="d-block"><i class="bi bi-info-circle"></i> In Proxy Mode, set your real backend URL in the "Target" field</span>
         </div>
     </div>
 </div>
 
 <script>
     (function() {
-        // Fixed backend URL - cannot be changed by user
-        const FIXED_BACKEND_URL = 'https://proxy-server-enne.onrender.com';
+        // Proxy server URL - fixed
+        const PROXY_SERVER_URL = 'https://proxy-server-enne.onrender.com';
+        const PROXY_ENDPOINT = PROXY_SERVER_URL + '/proxy';  // Full proxy endpoint
         
         // Current backend mode: 'fixed' or 'local'
-        let currentBackendMode = 'fixed'; // Default to fixed backend
+        let currentBackendMode = 'fixed'; // Default to proxy mode
         
         // Original API names that are protected (cannot be deleted)
         const PROTECTED_NAMES = [
@@ -515,8 +534,13 @@
         const themeIcon = document.getElementById('themeIcon');
         const refreshAllBtn = document.getElementById('refreshAllBtn');
         const fixedBackendDiv = document.getElementById('fixedBackendDiv');
+        const targetBackendDiv = document.getElementById('targetBackendDiv');
         const localPortDiv = document.getElementById('localPortDiv');
         const backendOptions = document.querySelectorAll('.backend-option');
+        const targetBackendInput = document.getElementById('targetBackendInput');
+
+        // Default target backend - CHANGE THIS TO YOUR ACTUAL BACKEND URL
+        targetBackendInput.value = 'https://your-backend.onrender.com'; // 👈 CHANGE THIS!
 
         // Backend toggle functionality
         backendOptions.forEach(option => {
@@ -528,9 +552,11 @@
                 
                 if (currentBackendMode === 'fixed') {
                     fixedBackendDiv.style.display = 'flex';
+                    targetBackendDiv.style.display = 'flex';
                     localPortDiv.style.display = 'none';
                 } else {
                     fixedBackendDiv.style.display = 'none';
+                    targetBackendDiv.style.display = 'none';
                     localPortDiv.style.display = 'flex';
                 }
                 
@@ -565,7 +591,7 @@
 
         function getCurrentBaseUrl() {
             if (currentBackendMode === 'fixed') {
-                return FIXED_BACKEND_URL;
+                return PROXY_SERVER_URL;  // Just for display purposes
             } else {
                 let port = portInput.value.trim();
                 if (!port || isNaN(port) || port <= 0) port = 5000;
@@ -579,12 +605,17 @@
                 return pathOrFull;
             }
             
-            // Otherwise use the current base URL
-            const base = getCurrentBaseUrl();
-            if (pathOrFull.startsWith('/')) {
-                return base + pathOrFull;
+            if (currentBackendMode === 'fixed') {
+                // In proxy mode, we return just the path - the actual target URL is built in sendApiRequest
+                return pathOrFull;
+            } else {
+                // Local mode - direct to localhost:port
+                const base = getCurrentBaseUrl();
+                if (pathOrFull.startsWith('/')) {
+                    return base + pathOrFull;
+                }
+                return base + '/' + pathOrFull;
             }
-            return base + '/' + pathOrFull;
         }
 
         function renderNav() {
@@ -707,9 +738,13 @@
                 html += `<input type="text" class="form-control url-box flex-grow-1" value="${api.fullUrl || api.path}" placeholder="/api/..." data-path-index="${i}">`;
                 html += `</div>`;
                 
-                // Show which backend is being used and the full URL
-                let backendType = currentBackendMode === 'fixed' ? 'Fixed Backend' : `Local Port :${portInput.value || '5000'}`;
-                html += `<div class="small mb-2"><i class="bi bi-${currentBackendMode === 'fixed' ? 'server' : 'hdd'}"></i> Using: <span class="badge bg-primary">${backendType}</span> → <span class="text-info">${fullUrl}</span></div>`;
+                // Show routing info
+                if (currentBackendMode === 'fixed') {
+                    html += `<div class="small mb-2"><i class="bi bi-server"></i> <span class="badge bg-info">PROXY MODE</span> → via <code>${PROXY_ENDPOINT}</code> → target: <span class="text-primary">${targetBackendInput.value || 'your-backend.com'}</span><span class="text-info">${api.path || ''}</span></div>`;
+                } else {
+                    let base = getCurrentBaseUrl();
+                    html += `<div class="small mb-2"><i class="bi bi-hdd"></i> <span class="badge bg-success">DIRECT MODE</span> → <span class="text-info">${base}${api.path || ''}</span></div>`;
+                }
 
                 // Auth panel
                 if (api.showAuth) {
@@ -893,65 +928,185 @@
             });
         }
 
+        // 🔥 FIXED sendApiRequest function - NOW WORKING WITH PROXY!
         async function sendApiRequest(index) {
             const api = customApis[index];
             if (!api) return;
 
-            let url;
-            if (api.fullUrl) {
-                url = api.fullUrl;
-            } else {
-                url = resolveFullUrl(api.path);
-            }
-
-            const method = api.method;
             const responsePre = document.getElementById(`response-${index}`);
             if (!responsePre) return;
 
             const bodyTextarea = document.getElementById(`body-${index}`);
             let bodyValue = bodyTextarea ? bodyTextarea.value : '';
 
-            const headers = { 'Accept': 'application/json, text/plain, */*' };
-            if (api.contentType) headers['Content-Type'] = api.contentType;
-            if (api.auth.type === 'bearer' && api.auth.token) {
-                headers['Authorization'] = `Bearer ${api.auth.token}`;
-            } else if (api.auth.type === 'basic' && api.auth.token) {
-                headers['Authorization'] = `Basic ${btoa(api.auth.token)}`;
-            }
-
-            const fetchOptions = { method, headers, mode: 'cors' };
-
-            if (bodyValue && bodyValue.trim() !== '' && ['POST','PUT','PATCH','DELETE'].includes(method)) {
-                if (api.contentType && api.contentType.includes('application/json') && bodyValue.trim() !== '') {
-                    try { JSON.parse(bodyValue); } 
-                    catch (jsonErr) {
-                        responsePre.innerHTML = `❌ INVALID JSON:\n${jsonErr.message}`;
-                        responseMap.set(index, { text: `❌ INVALID JSON:\n${jsonErr.message}`, status: null });
-                        return;
-                    }
+            // Validate JSON if needed
+            if (bodyValue && bodyValue.trim() !== '' && api.contentType && api.contentType.includes('application/json')) {
+                try { 
+                    JSON.parse(bodyValue); 
+                } catch (jsonErr) {
+                    responsePre.innerHTML = `❌ INVALID JSON:\n${jsonErr.message}`;
+                    responseMap.set(index, { text: `❌ INVALID JSON:\n${jsonErr.message}`, status: null });
+                    return;
                 }
-                fetchOptions.body = bodyValue;
             }
 
+            if (currentBackendMode === 'fixed') {
+                // 🔥 PROXY MODE - Send via proxy server
+                await sendViaProxy(index, api, bodyValue, responsePre);
+            } else {
+                // 🔥 DIRECT MODE - Send directly to localhost
+                await sendDirect(index, api, bodyValue, responsePre);
+            }
+        }
+
+        // New function for proxy mode
+        async function sendViaProxy(index, api, bodyValue, responsePre) {
             try {
-                responsePre.innerHTML = '⏳ Sending request ...';
+                // Get target backend URL from input
+                let targetBackendBase = targetBackendInput.value.trim();
+                if (!targetBackendBase) {
+                    targetBackendBase = 'https://your-backend.onrender.com'; // fallback
+                }
+                
+                // Remove trailing slash if present
+                targetBackendBase = targetBackendBase.replace(/\/$/, '');
+                
+                // Build the target URL
+                let targetUrl;
+                if (api.fullUrl) {
+                    targetUrl = api.fullUrl; // Custom full URL
+                } else {
+                    // Ensure path starts with /
+                    const path = api.path.startsWith('/') ? api.path : '/' + api.path;
+                    targetUrl = targetBackendBase + path;
+                }
+
+                responsePre.innerHTML = `⏳ Proxying request to: ${targetUrl} ...`;
+
+                // Prepare headers
+                const headers = {};
+                if (api.contentType) {
+                    headers['Content-Type'] = api.contentType;
+                }
+                
+                // Add auth headers
+                if (api.auth.type === 'bearer' && api.auth.token) {
+                    headers['Authorization'] = `Bearer ${api.auth.token}`;
+                } else if (api.auth.type === 'basic' && api.auth.token) {
+                    headers['Authorization'] = `Basic ${btoa(api.auth.token)}`;
+                }
+
+                // Prepare proxy payload
+                const proxyPayload = {
+                    url: targetUrl,
+                    method: api.method,
+                    headers: headers
+                };
+
+                // Add body for applicable methods
+                if (bodyValue && bodyValue.trim() !== '' && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(api.method)) {
+                    proxyPayload.body = bodyValue;
+                }
+
+                // Send to proxy
                 const start = performance.now();
-                const fetchResponse = await fetch(url, fetchOptions).catch(err => { throw new Error(`Network/CORS: ${err.message}`); });
+                const proxyResponse = await fetch(PROXY_ENDPOINT, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(proxyPayload)
+                });
+
+                const responseData = await proxyResponse.json();
+                const timeMs = Math.round(performance.now() - start);
+
+                let displayText = '';
+                if (responseData.success) {
+                    // Format the response nicely
+                    const responseContent = responseData.data || responseData;
+                    displayText = `✅ [${responseData.status || 200}] ${timeMs}ms\n${JSON.stringify(responseContent, null, 2)}`;
+                } else {
+                    displayText = `⚠️ [${responseData.status || 500}] ${timeMs}ms\nError: ${responseData.error || 'Unknown'}\n${JSON.stringify(responseData, null, 2)}`;
+                }
+
+                responsePre.innerHTML = displayText.replace(/</g, '&lt;');
+                responseMap.set(index, { 
+                    text: displayText, 
+                    status: responseData.status || (responseData.success ? 200 : 500) 
+                });
+
+            } catch (error) {
+                const errMsg = `💥 PROXY ERROR: ${error.message}`;
+                responsePre.innerHTML = errMsg.replace(/</g, '&lt;');
+                responseMap.set(index, { text: errMsg, status: null });
+            }
+        }
+
+        // Direct mode (original functionality)
+        async function sendDirect(index, api, bodyValue, responsePre) {
+            try {
+                // Build URL
+                let url;
+                if (api.fullUrl) {
+                    url = api.fullUrl;
+                } else {
+                    const base = getCurrentBaseUrl();
+                    const path = api.path.startsWith('/') ? api.path : '/' + api.path;
+                    url = base + path;
+                }
+
+                responsePre.innerHTML = `⏳ Sending direct request to: ${url} ...`;
+
+                // Prepare headers
+                const headers = { 'Accept': 'application/json, text/plain, */*' };
+                if (api.contentType) {
+                    headers['Content-Type'] = api.contentType;
+                }
+                
+                // Add auth headers
+                if (api.auth.type === 'bearer' && api.auth.token) {
+                    headers['Authorization'] = `Bearer ${api.auth.token}`;
+                } else if (api.auth.type === 'basic' && api.auth.token) {
+                    headers['Authorization'] = `Basic ${btoa(api.auth.token)}`;
+                }
+
+                const fetchOptions = { 
+                    method: api.method, 
+                    headers, 
+                    mode: 'cors' 
+                };
+
+                // Add body for applicable methods
+                if (bodyValue && bodyValue.trim() !== '' && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(api.method)) {
+                    fetchOptions.body = bodyValue;
+                }
+
+                const start = performance.now();
+                const fetchResponse = await fetch(url, fetchOptions);
                 const status = fetchResponse.status;
+                
                 const resContentType = fetchResponse.headers.get('content-type') || '';
                 let responseText;
+                
                 if (resContentType.includes('application/json')) {
-                    try { responseText = JSON.stringify(await fetchResponse.json(), null, 2); } 
-                    catch { responseText = await fetchResponse.text(); }
+                    try { 
+                        responseText = JSON.stringify(await fetchResponse.json(), null, 2); 
+                    } catch { 
+                        responseText = await fetchResponse.text(); 
+                    }
                 } else {
                     responseText = await fetchResponse.text();
                 }
+                
                 const timeMs = Math.round(performance.now() - start);
                 const final = `${status >= 200 && status < 300 ? '✅' : '⚠️'} [${status}] ${timeMs}ms\n${responseText}`;
+                
                 responsePre.innerHTML = final.replace(/</g, '&lt;');
                 responseMap.set(index, { text: final, status });
+
             } catch (error) {
-                const errMsg = `💥 ERROR: ${error.message}`;
+                const errMsg = `💥 DIRECT ERROR: ${error.message}`;
                 responsePre.innerHTML = errMsg.replace(/</g, '&lt;');
                 responseMap.set(index, { text: errMsg, status: null });
             }
@@ -984,6 +1139,13 @@
             if (currentBackendMode === 'local') {
                 renderCards(); 
                 renderNav(); 
+            }
+        });
+
+        // Update when target backend changes
+        targetBackendInput.addEventListener('input', () => {
+            if (currentBackendMode === 'fixed') {
+                renderCards();
             }
         });
 
