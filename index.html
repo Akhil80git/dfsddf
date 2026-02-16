@@ -260,10 +260,25 @@
             font-family: monospace;
         }
         .port-input {
-            min-width: 300px;
+            max-width: 100px;
             border-radius: 40px;
             border: 2px solid #dee2e6;
             padding: 8px 16px;
+        }
+        .fixed-url {
+            background: #e2eaf3;
+            border-radius: 40px;
+            padding: 8px 20px;
+            font-weight: 500;
+            border: 2px solid #6c5ce7;
+            color: #2d3748;
+            font-family: monospace;
+            user-select: all;
+        }
+        body.dark-mode .fixed-url {
+            background: #2d3440;
+            color: #a0b3cc;
+            border-color: #8a7be7;
         }
         .btn-send {
             border-radius: 40px;
@@ -314,11 +329,40 @@
             opacity: 0.4;
             cursor: not-allowed;
         }
+        .url-badge {
+            background: #6c5ce7;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75rem;
+            margin-left: 8px;
+        }
+        .backend-toggle {
+            display: flex;
+            gap: 10px;
+            background: #f0f4fa;
+            border-radius: 40px;
+            padding: 4px;
+        }
+        .backend-option {
+            padding: 6px 16px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .backend-option.active {
+            background: #6c5ce7;
+            color: white;
+        }
+        body.dark-mode .backend-toggle {
+            background: #2d3440;
+        }
     </style>
 </head>
 <body class="p-4">
 
-<!-- top bar - Updated with your deployed backend -->
+<!-- top bar - Fixed backend URL and separate port input -->
 <div class="d-flex flex-wrap align-items-center justify-content-between mb-4" style="max-width: 1600px; margin: 0 auto;">
     <div class="d-flex gap-3 align-items-center">
         <span class="bg-white shadow-sm rounded-5 p-3 d-inline-flex align-items-center px-4">
@@ -327,12 +371,29 @@
             <span class="badge bg-dark text-white ms-3 px-3 py-2 rounded-pill">originals protected</span>
         </span>
     </div>
-    <div class="d-flex align-items-center gap-2 mt-2 mt-sm-0">
-        <div class="global-base d-flex align-items-center gap-2">
-            <i class="bi bi-hdd-network-fill"></i>
-            <span>Backend:</span>
+    <div class="d-flex align-items-center gap-2 mt-2 mt-sm-0 flex-wrap">
+        <!-- Backend Toggle Switch -->
+        <div class="backend-toggle" id="backendToggle">
+            <div class="backend-option active" data-backend="fixed">
+                <i class="bi bi-server"></i> Fixed Backend
+            </div>
+            <div class="backend-option" data-backend="local">
+                <i class="bi bi-hdd"></i> Local Port
+            </div>
         </div>
-        <input type="text" id="portInput" class="form-control port-input" value="https://proxy-server-enne.onrender.com" placeholder="Backend URL">
+        
+        <!-- Fixed Backend URL Display -->
+        <div class="fixed-url d-flex align-items-center gap-2" id="fixedBackendDiv">
+            <i class="bi bi-shield-check"></i>
+            <span id="fixedBackendUrl">https://proxy-server-enne.onrender.com</span>
+        </div>
+        
+        <!-- Local Port Input - Only visible when local selected -->
+        <div class="d-flex align-items-center gap-1" id="localPortDiv" style="display: none;">
+            <span class="text-secondary">Port:</span>
+            <input type="number" id="portInput" class="form-control port-input" value="5000" min="1" max="65535" placeholder="port">
+        </div>
+        
         <button class="theme-toggle" id="themeToggleBtn">
             <i class="bi bi-sun-fill" id="themeIcon"></i>
         </button>
@@ -359,13 +420,20 @@
         <div class="text-center mt-4 text-secondary small">
             <i class="bi bi-shield-lock-fill"></i> <span class="fw-bold">Original APIs (with badge) cannot be deleted</span> · Duplicates & custom APIs are deletable
             <br>
-            <span class="mt-2 d-block"><i class="bi bi-server"></i> Connected to: <strong>https://proxy-server-enne.onrender.com</strong></span>
+            <span class="mt-2 d-block"><i class="bi bi-arrow-left-right"></i> Toggle between <strong>Fixed Backend</strong> and <strong>Local Port</strong> at top</span>
+            <span class="d-block"><i class="bi bi-info-circle"></i> APIs use path only (like /api/auth/register) - No need to type full URL!</span>
         </div>
     </div>
 </div>
 
 <script>
     (function() {
+        // Fixed backend URL - cannot be changed by user
+        const FIXED_BACKEND_URL = 'https://proxy-server-enne.onrender.com';
+        
+        // Current backend mode: 'fixed' or 'local'
+        let currentBackendMode = 'fixed'; // Default to fixed backend
+        
         // Original API names that are protected (cannot be deleted)
         const PROTECTED_NAMES = [
             '🔵 Login',
@@ -394,7 +462,7 @@
             '🔒 Reset password': 'reset'
         };
 
-        // Default APIs with group info - Using your deployed backend
+        // Default APIs with group info
         const DEFAULT_APIS = [
             { name: '🔵 Login', method: 'POST', path: '/api/auth/login', description: 'authenticate', body: '{\n  "email": "user@example.com",\n  "password": "123456"\n}', auth: { type: 'none', token: '' }, contentType: 'application/json', showAuth: false, group: 'login', protected: true },
             { name: '📄 Register', method: 'POST', path: '/api/auth/register', description: 'sign up', body: '{\n  "username": "test",\n  "email": "test@a.com",\n  "password": "secret"\n}', auth: { type: 'none', token: '' }, contentType: 'application/json', showAuth: false, group: 'register', protected: true },
@@ -446,6 +514,31 @@
         const themeToggle = document.getElementById('themeToggleBtn');
         const themeIcon = document.getElementById('themeIcon');
         const refreshAllBtn = document.getElementById('refreshAllBtn');
+        const fixedBackendDiv = document.getElementById('fixedBackendDiv');
+        const localPortDiv = document.getElementById('localPortDiv');
+        const backendOptions = document.querySelectorAll('.backend-option');
+
+        // Backend toggle functionality
+        backendOptions.forEach(option => {
+            option.addEventListener('click', () => {
+                backendOptions.forEach(opt => opt.classList.remove('active'));
+                option.classList.add('active');
+                
+                currentBackendMode = option.dataset.backend;
+                
+                if (currentBackendMode === 'fixed') {
+                    fixedBackendDiv.style.display = 'flex';
+                    localPortDiv.style.display = 'none';
+                } else {
+                    fixedBackendDiv.style.display = 'none';
+                    localPortDiv.style.display = 'flex';
+                }
+                
+                // Re-render cards to show updated URLs
+                renderCards();
+                renderNav();
+            });
+        });
 
         // Theme toggle
         themeToggle.addEventListener('click', () => {
@@ -470,23 +563,27 @@
             renderNav();
         });
 
-        function buildBaseUrl() {
-            // Get the backend URL from input or use default
-            let backendUrl = portInput.value.trim();
-            if (!backendUrl) {
-                backendUrl = 'https://proxy-server-enne.onrender.com';
+        function getCurrentBaseUrl() {
+            if (currentBackendMode === 'fixed') {
+                return FIXED_BACKEND_URL;
+            } else {
+                let port = portInput.value.trim();
+                if (!port || isNaN(port) || port <= 0) port = 5000;
+                return `http://localhost:${port}`;
             }
-            // Remove trailing slash if present
-            if (backendUrl.endsWith('/')) {
-                backendUrl = backendUrl.slice(0, -1);
-            }
-            return backendUrl;
         }
 
         function resolveFullUrl(pathOrFull) {
-            const base = buildBaseUrl();
-            if (pathOrFull.startsWith('http://') || pathOrFull.startsWith('https://')) return pathOrFull;
-            if (pathOrFull.startsWith('/')) return base + pathOrFull;
+            // If it's already a full URL, use it as is (for custom endpoints)
+            if (pathOrFull.startsWith('http://') || pathOrFull.startsWith('https://')) {
+                return pathOrFull;
+            }
+            
+            // Otherwise use the current base URL
+            const base = getCurrentBaseUrl();
+            if (pathOrFull.startsWith('/')) {
+                return base + pathOrFull;
+            }
             return base + '/' + pathOrFull;
         }
 
@@ -563,7 +660,7 @@
                     displayUrl = fullUrl;
                 } else {
                     fullUrl = resolveFullUrl(api.path);
-                    displayUrl = fullUrl;
+                    displayUrl = api.path; // Show only path in input
                 }
 
                 const savedResponse = responseMap.get(i) || { text: 'Click "Send" to see response …', status: null };
@@ -600,16 +697,19 @@
                 html += `</div>`;
                 html += `</div>`;
 
-                // URL row - Show full URL with backend
+                // URL row - Show only path in input box
                 html += `<div class="d-flex flex-wrap align-items-center gap-2 mb-3">`;
                 html += `<select class="form-select method-select rounded-pill w-auto border-2" data-method-index="${i}">`;
                 ['GET','POST','PUT','PATCH','DELETE'].forEach(m => {
                     html += `<option value="${m}" ${api.method === m ? 'selected' : ''}>${m}</option>`;
                 });
                 html += `</select>`;
-                html += `<input type="text" class="form-control url-box flex-grow-1" value="${api.fullUrl || api.path}" placeholder="/api/... or full URL" data-path-index="${i}">`;
+                html += `<input type="text" class="form-control url-box flex-grow-1" value="${api.fullUrl || api.path}" placeholder="/api/..." data-path-index="${i}">`;
                 html += `</div>`;
-                html += `<div class="small text-secondary mb-2"><i class="bi bi-link"></i> Full URL: ${fullUrl}</div>`;
+                
+                // Show which backend is being used and the full URL
+                let backendType = currentBackendMode === 'fixed' ? 'Fixed Backend' : `Local Port :${portInput.value || '5000'}`;
+                html += `<div class="small mb-2"><i class="bi bi-${currentBackendMode === 'fixed' ? 'server' : 'hdd'}"></i> Using: <span class="badge bg-primary">${backendType}</span> → <span class="text-info">${fullUrl}</span></div>`;
 
                 // Auth panel
                 if (api.showAuth) {
@@ -798,8 +898,11 @@
             if (!api) return;
 
             let url;
-            if (api.fullUrl) url = api.fullUrl;
-            else url = resolveFullUrl(api.path);
+            if (api.fullUrl) {
+                url = api.fullUrl;
+            } else {
+                url = resolveFullUrl(api.path);
+            }
 
             const method = api.method;
             const responsePre = document.getElementById(`response-${index}`);
@@ -878,8 +981,10 @@
         
         // Update when port input changes
         portInput.addEventListener('input', () => { 
-            renderCards(); 
-            renderNav(); 
+            if (currentBackendMode === 'local') {
+                renderCards(); 
+                renderNav(); 
+            }
         });
 
         renderCards();
@@ -887,6 +992,6 @@
     })();
 </script>
 
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.min.js"></script>
 </body>
 </html>
